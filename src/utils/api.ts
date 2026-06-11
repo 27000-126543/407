@@ -2,6 +2,56 @@ import dayjs from 'dayjs'
 
 const hasElectronAPI = typeof window !== 'undefined' && typeof (window as any).api !== 'undefined'
 
+function generateUnitsForPump(pumpId: number, designFlow: number, head: number, power: number, equipmentModel: string, unitCount: number = 2, hasBackup: boolean = true): any[] {
+  const units: any[] = []
+  const unitFlow = Math.round(designFlow / unitCount)
+  const unitPower = Math.round(power / unitCount)
+  const ratedCurrent = Math.round(power * 1000 / 380 / 0.85)
+  const unitRatedCurrent = Math.round(ratedCurrent / unitCount)
+  let unitIdBase = (pumpId - 1) * 10
+
+  for (let i = 0; i < unitCount; i++) {
+    units.push({
+      id: ++unitIdBase,
+      pumpId,
+      unitNumber: `${i + 1}`,
+      equipmentModel,
+      ratedFlow: unitFlow,
+      ratedHead: head,
+      ratedPower: unitPower,
+      ratedCurrent: unitRatedCurrent,
+      status: i === 0 ? 'running' : 'standby',
+      isBackup: false,
+      runtime: Math.round(Math.random() * 1000),
+      startCount: Math.round(Math.random() * 300),
+      current: i === 0 ? Math.round(unitRatedCurrent * 0.9) : Math.round(unitRatedCurrent * 0.02),
+      flow: i === 0 ? Math.round(unitFlow * 0.92) : 0,
+      head: i === 0 ? +(head * 0.98).toFixed(1) : head
+    })
+  }
+
+  if (hasBackup) {
+    units.push({
+      id: ++unitIdBase,
+      pumpId,
+      unitNumber: `${unitCount + 1}(备用)`,
+      equipmentModel,
+      ratedFlow: unitFlow,
+      ratedHead: head,
+      ratedPower: unitPower,
+      ratedCurrent: unitRatedCurrent,
+      status: 'standby',
+      isBackup: true,
+      runtime: 0,
+      startCount: 0,
+      current: 1,
+      flow: 0,
+      head
+    })
+  }
+  return units
+}
+
 function generateMockPumps(): any[] {
   return [
     {
@@ -16,11 +66,7 @@ function generateMockPumps(): any[] {
       nextMaintenanceDate: dayjs().add(2, 'month').format('YYYY-MM-DD'),
       createTime: dayjs().format('YYYY-MM-DD HH:mm:ss'),
       updateTime: dayjs().format('YYYY-MM-DD HH:mm:ss'),
-      units: [
-        { id: 1, pumpId: 1, unitNumber: '1#', equipmentModel: 'WQ1200-8.5-500', ratedFlow: 600, ratedHead: 8.5, ratedPower: 250, ratedCurrent: 460, status: 'running', isBackup: false, runtime: 800, startCount: 160, current: 420, flow: 550, head: 8.3 },
-        { id: 2, pumpId: 1, unitNumber: '2#', equipmentModel: 'WQ1200-8.5-500', ratedFlow: 600, ratedHead: 8.5, ratedPower: 250, ratedCurrent: 460, status: 'standby', isBackup: false, runtime: 760, startCount: 160, current: 5, flow: 0, head: 8.5 },
-        { id: 3, pumpId: 1, unitNumber: '3#', equipmentModel: 'WQ1200-8.5-500', ratedFlow: 600, ratedHead: 8.5, ratedPower: 250, ratedCurrent: 460, status: 'standby', isBackup: true, runtime: 0, startCount: 0, current: 2, flow: 0, head: 8.5 }
-      ]
+      units: generateUnitsForPump(1, 1200, 8.5, 500, 'WQ1200-8.5-500', 2, true)
     },
     {
       id: 2, name: '城南泵站', code: 'CD-002', location: '城南工业区排水大道',
@@ -34,7 +80,7 @@ function generateMockPumps(): any[] {
       nextMaintenanceDate: dayjs().add(1, 'month').format('YYYY-MM-DD'),
       createTime: dayjs().format('YYYY-MM-DD HH:mm:ss'),
       updateTime: dayjs().format('YYYY-MM-DD HH:mm:ss'),
-      units: []
+      units: generateUnitsForPump(2, 800, 7.2, 315, 'WQ800-7.2-315', 2, true)
     },
     {
       id: 3, name: '城西泵站', code: 'CD-003', location: '城西开发区科技路',
@@ -48,7 +94,7 @@ function generateMockPumps(): any[] {
       nextMaintenanceDate: dayjs().add(2, 'month').format('YYYY-MM-DD'),
       createTime: dayjs().format('YYYY-MM-DD HH:mm:ss'),
       updateTime: dayjs().format('YYYY-MM-DD HH:mm:ss'),
-      units: []
+      units: generateUnitsForPump(3, 1000, 9.0, 450, 'WQ1000-9-450', 2, true)
     },
     {
       id: 4, name: '城北泵站', code: 'CD-004', location: '城北物流园',
@@ -62,7 +108,7 @@ function generateMockPumps(): any[] {
       nextMaintenanceDate: dayjs().format('YYYY-MM-DD'),
       createTime: dayjs().format('YYYY-MM-DD HH:mm:ss'),
       updateTime: dayjs().format('YYYY-MM-DD HH:mm:ss'),
-      units: []
+      units: generateUnitsForPump(4, 600, 6.5, 220, 'WQ600-6.5-220', 2, true)
     },
     {
       id: 5, name: '中心枢纽站', code: 'CD-005', location: '市中心人民广场地下',
@@ -76,7 +122,7 @@ function generateMockPumps(): any[] {
       nextMaintenanceDate: dayjs().add(3, 'month').format('YYYY-MM-DD'),
       createTime: dayjs().format('YYYY-MM-DD HH:mm:ss'),
       updateTime: dayjs().format('YYYY-MM-DD HH:mm:ss'),
-      units: []
+      units: generateUnitsForPump(5, 1500, 10.0, 630, 'WQ1500-10-630', 3, true)
     }
   ]
 }
@@ -214,15 +260,15 @@ function generateMockMaintenance(): any[] {
 
 function generateMockPipelineNodes(): any[] {
   return [
-    { id: 1, code: 'N001', name: '城东泵站出口', type: 'pump', longitude: 114.3256, latitude: 30.5678, connectedNodes: [2, 3], currentLevel: 2.8, maxLevel: 5.0, warningLevel: 3.5 },
+    { id: 1, code: 'CD-001', name: '城东一号泵站', type: 'pump', longitude: 114.3256, latitude: 30.5678, connectedNodes: [2, 3], currentLevel: 2.8, maxLevel: 5.0, warningLevel: 3.5 },
     { id: 2, code: 'N002', name: '城南干线节点1', type: 'manhole', longitude: 114.3200, latitude: 30.5550, connectedNodes: [1, 4], currentLevel: 2.2, maxLevel: 4.5, warningLevel: 3.0 },
     { id: 3, code: 'N003', name: '城西干线节点1', type: 'manhole', longitude: 114.3050, latitude: 30.5650, connectedNodes: [1, 5], currentLevel: 2.5, maxLevel: 4.8, warningLevel: 3.2 },
-    { id: 4, code: 'N004', name: '城南泵站出口', type: 'pump', longitude: 114.3123, latitude: 30.5432, connectedNodes: [2, 6], currentLevel: 2.1, maxLevel: 4.2, warningLevel: 2.8 },
-    { id: 5, code: 'N005', name: '城西泵站出口', type: 'pump', longitude: 114.2890, latitude: 30.5612, connectedNodes: [3, 7], currentLevel: 3.0, maxLevel: 4.5, warningLevel: 3.0 },
-    { id: 6, code: 'N006', name: '城北泵站出口', type: 'pump', longitude: 114.3001, latitude: 30.5987, connectedNodes: [4, 8], currentLevel: 2.5, maxLevel: 4.0, warningLevel: 2.7 },
+    { id: 4, code: 'CD-002', name: '城南泵站', type: 'pump', longitude: 114.3123, latitude: 30.5432, connectedNodes: [2, 6], currentLevel: 2.1, maxLevel: 4.2, warningLevel: 2.8 },
+    { id: 5, code: 'CD-003', name: '城西泵站', type: 'pump', longitude: 114.2890, latitude: 30.5612, connectedNodes: [3, 7], currentLevel: 3.0, maxLevel: 4.5, warningLevel: 3.0 },
+    { id: 6, code: 'CD-004', name: '城北泵站', type: 'pump', longitude: 114.3001, latitude: 30.5987, connectedNodes: [4, 8], currentLevel: 2.5, maxLevel: 4.0, warningLevel: 2.7 },
     { id: 7, code: 'N007', name: '中心泵站入口', type: 'manhole', longitude: 114.2950, latitude: 30.5630, connectedNodes: [5, 9], currentLevel: 3.2, maxLevel: 5.0, warningLevel: 3.5 },
     { id: 8, code: 'N008', name: '东北排水主干', type: 'manhole', longitude: 114.3100, latitude: 30.5800, connectedNodes: [6, 9], currentLevel: 2.8, maxLevel: 4.8, warningLevel: 3.3 },
-    { id: 9, code: 'N009', name: '中心枢纽站出口', type: 'pump', longitude: 114.3015, latitude: 30.5650, connectedNodes: [7, 8, 10], currentLevel: 3.8, maxLevel: 5.5, warningLevel: 3.8 },
+    { id: 9, code: 'CD-005', name: '中心枢纽站', type: 'pump', longitude: 114.3015, latitude: 30.5650, connectedNodes: [7, 8, 10], currentLevel: 3.8, maxLevel: 5.5, warningLevel: 3.8 },
     { id: 10, code: 'N010', name: '长江排放口', type: 'outfall', longitude: 114.3300, latitude: 30.5500, connectedNodes: [9], currentLevel: 3.5, maxLevel: 6.0, warningLevel: 4.0 }
   ]
 }
@@ -296,6 +342,16 @@ export const api = hasElectronAPI ? (window as any).api : {
         mockSchedules[idx].adjustRequestTime = dayjs().format('YYYY-MM-DD HH:mm:ss')
       }
       return Promise.resolve()
+    },
+    reject: (id: number, approver: string, reason: string) => {
+      const idx = mockSchedules.findIndex(s => s.id === id)
+      if (idx >= 0) {
+        mockSchedules[idx].status = 'rejected'
+        mockSchedules[idx].approver = approver
+        mockSchedules[idx].approvalComment = reason
+        mockSchedules[idx].approvalTime = dayjs().format('YYYY-MM-DD HH:mm:ss')
+      }
+      return Promise.resolve()
     }
   },
   monitoring: {
@@ -303,6 +359,11 @@ export const api = hasElectronAPI ? (window as any).api : {
     history: () => Promise.resolve([]),
     insert: () => Promise.resolve(Date.now()),
     alerts: () => Promise.resolve(mockAlerts),
+    insertAlert: (alert: any) => {
+      const newId = Math.max(0, ...mockAlerts.map(a => a.id)) + 1
+      mockAlerts.unshift({ ...alert, id: newId })
+      return Promise.resolve(newId)
+    },
     ackAlert: (id: number, operator: string) => {
       const alert = mockAlerts.find(a => a.id === id)
       if (alert) {

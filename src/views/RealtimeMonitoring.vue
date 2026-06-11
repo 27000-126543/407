@@ -74,7 +74,7 @@
               :class="`status-${unit.status}`"
             >
               <div class="unit-header">
-                <span class="unit-name">{{ unit.unitNumber }}#泵</span>
+                <span class="unit-name">{{ unit.unitNumber }}泵</span>
                 <el-tag :type="getUnitStatusType(unit.status)" size="small">
                   {{ getStatusText(unit.status) }}
                 </el-tag>
@@ -191,30 +191,10 @@ const realtimeData = computed<MonitoringData | null>(() => {
 
 const isAlert = computed(() => realtimeData.value?.isAlert || false)
 
-const pumpUnits = ref<PumpUnit[]>([
-  {
-    id: 1, pumpId: 1, unitNumber: '1', equipmentModel: '300S-19',
-    ratedFlow: 790, ratedHead: 19, ratedPower: 55, ratedCurrent: 102,
-    status: 'running', isBackup: false, current: 85.6, flow: 680, head: 18.2,
-    runtime: 12580, startCount: 356
-  },
-  {
-    id: 2, pumpId: 1, unitNumber: '2', equipmentModel: '300S-19',
-    ratedFlow: 790, ratedHead: 19, ratedPower: 55, ratedCurrent: 102,
-    status: 'running', isBackup: false, current: 82.3, flow: 650, head: 17.8,
-    runtime: 11200, startCount: 312
-  },
-  {
-    id: 3, pumpId: 1, unitNumber: '3', equipmentModel: '300S-19',
-    ratedFlow: 790, ratedHead: 19, ratedPower: 55, ratedCurrent: 102,
-    status: 'standby', isBackup: true, runtime: 5600, startCount: 156
-  },
-  {
-    id: 4, pumpId: 1, unitNumber: '4', equipmentModel: '300S-19',
-    ratedFlow: 790, ratedHead: 19, ratedPower: 55, ratedCurrent: 102,
-    status: 'fault', isBackup: true, runtime: 8900, startCount: 234
-  }
-])
+const pumpUnits = computed<PumpUnit[]>(() => {
+  if (!currentPump.value) return []
+  return currentPump.value.units || []
+})
 
 const historyData = ref<{ time: string; flow: number; current: number; level: number }[]>([])
 
@@ -531,22 +511,27 @@ function updateRealtimeData() {
 }
 
 function updatePumpUnitsData() {
-  pumpUnits.value.forEach(unit => {
+  const units = currentPump.value?.units
+  if (!units) return
+  units.forEach(unit => {
     if (unit.status === 'running') {
-      unit.current = 75 + Math.random() * 15
-      unit.flow = 600 + Math.random() * 150
-      unit.head = 17 + Math.random() * 3
-      unit.runtime += 5
+      unit.current = (unit.ratedCurrent || 100) * (0.85 + Math.random() * 0.1)
+      unit.flow = (unit.ratedFlow || 500) * (0.85 + Math.random() * 0.15)
+      unit.head = (unit.ratedHead || 18) * (0.95 + Math.random() * 0.1)
+      unit.runtime = (unit.runtime || 0) + 5
     }
   })
 }
 
-function checkAndShowAlert(data: MonitoringData, pump: Pump) {
+async function checkAndShowAlert(data: MonitoringData, pump: Pump) {
   let alertType = ''
   let parameter = ''
   let actualValue = 0
   let threshold = 0
   let message = ''
+  let isDanger = false
+  let autoAction = ''
+  let autoActionResult = ''
 
   if (data.current > pump.maxCurrent) {
     alertType = '电流超限'
@@ -554,25 +539,45 @@ function checkAndShowAlert(data: MonitoringData, pump: Pump) {
     actualValue = data.current
     threshold = pump.maxCurrent
     message = `${pump.name} 电流超过额定值，当前 ${data.current.toFixed(1)}A，额定 ${pump.maxCurrent}A`
+    isDanger = data.alertLevel === 'danger'
   } else if (data.forebayLevel >= pump.forebayWarningLevel) {
+    isDanger = data.forebayLevel >= pump.forebayDangerLevel
     alertType = '水位超限'
     parameter = '前池水位'
     actualValue = data.forebayLevel
-    threshold = data.forebayLevel >= pump.forebayDangerLevel ? pump.forebayDangerLevel : pump.forebayWarningLevel
-    message = `${pump.name} 前池水位${data.forebayLevel >= pump.forebayDangerLevel ? '达到危险值' : '超过预警值'}，当前 ${data.forebayLevel.toFixed(2)}m`
+    threshold = isDanger ? pump.forebayDangerLevel : pump.forebayWarningLevel
+    message = `${pump.name} 前池水位${isDanger ? '达到危险值' : '超过预警值'}，当前 ${data.forebayLevel.toFixed(2)}m`
+
+    if (isDanger && pump.units) {
+      const backupUnit = pump.units.find(u => u.isBackup && u.status !== 'fault')
+      if (backupUnit && backupUnit.status !== 'running') {
+        backupUnit.status = 'running'
+        backupUnit.current = (backupUnit.ratedCurrent || 100) * 0.9
+        backupUnit.flow = (backupUnit.ratedFlow || 500) * 0.85
+        backupUnit.head = backupUnit.ratedHead || 18
+        autoAction = `自动启动备用泵 ${backupUnit.unitNumber}`
+        autoActionResult = `备用泵 ${backupUnit.unitNumber} 启动成功，流量 ${(backupUnit.flow || 0).toFixed(0)}m³/h`
+        message += `；已${autoAction}`
+      } else {
+        autoAction = '尝试启动备用泵'
+        autoActionResult = '无可运行备用泵'
+      }
+    }
   }
 
   const alert: Alert = {
     id: Date.now(),
     pumpId: pump.id,
     alertType,
-    alertLevel: data.alertLevel || 'warning',
+    alertLevel: isDanger ? 'danger' : 'warning',
     parameter,
     actualValue,
     threshold,
     message,
     timestamp: data.timestamp,
-    acknowledged: false
+    acknowledged: false,
+    autoAction: autoAction || undefined,
+    autoActionResult: autoActionResult || undefined
   }
 
   if (alert.id !== lastAlertId.value) {
@@ -580,6 +585,16 @@ function checkAndShowAlert(data: MonitoringData, pump: Pump) {
     alertDialogVisible.value = true
     lastAlertId.value = alert.id
     playAlertSound(alert.alertLevel)
+
+    try {
+      await monitoringStore.insertAlert(alert)
+    } catch (e) {
+      console.error('保存报警失败', e)
+    }
+
+    if (autoAction) {
+      ElMessage.warning(autoActionResult || autoAction)
+    }
   }
 }
 

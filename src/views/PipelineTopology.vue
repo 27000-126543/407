@@ -494,9 +494,16 @@ function getNodeTypeName(type: string): string {
   return map[type] || type
 }
 
+function findPumpByNode(node: PipelineNode): Pump | undefined {
+  return pumps.value.find(p => p.code === node.code || p.name === node.name)
+}
+
 function getPumpActualStatus(node: PipelineNode): string {
-  const pump = pumps.value.find(p => p.code === node.code || p.name === node.name)
-  return pump?.status || 'standby'
+  const pump = findPumpByNode(node)
+  if (pump) return pump.status
+  const data = realtimeData.value.get(node.id)
+  if (data && data.flow > 0) return 'running'
+  return 'standby'
 }
 
 function getPumpStatusText(node: PipelineNode): string {
@@ -532,28 +539,44 @@ function getPumpStatusTag(node: PipelineNode): string {
   return map[status] || 'info'
 }
 
-function getPumpFlow(node: PipelineNode): number | undefined {
-  const pump = pumps.value.find(p => p.code === node.code || p.name === node.name)
+function getPumpFlow(node: PipelineNode): number {
+  const pump = findPumpByNode(node)
   if (pump) {
     const data = realtimeData.value.get(pump.id)
-    return data?.flow
+    if (data && typeof data.flow === 'number') return data.flow
+    if (pump.units && pump.units.length > 0) {
+      return pump.units.reduce((sum: number, u: any) => sum + (u.flow || 0), 0)
+    }
+    if (pump.status === 'running') return Math.round(pump.designFlow * 0.7)
   }
+  return 0
 }
 
-function getPumpCurrent(node: PipelineNode): number | undefined {
-  const pump = pumps.value.find(p => p.code === node.code || p.name === node.name)
+function getPumpCurrent(node: PipelineNode): number {
+  const pump = findPumpByNode(node)
   if (pump) {
     const data = realtimeData.value.get(pump.id)
-    return data?.current
+    if (data && typeof data.current === 'number') return data.current
+    if (pump.units && pump.units.length > 0) {
+      return pump.units.reduce((sum: number, u: any) => sum + (u.current || 0), 0)
+    }
+    if (pump.status === 'running') return Math.round(pump.ratedCurrent * 0.85)
   }
+  return 0
 }
 
-function getPumpHead(node: PipelineNode): number | undefined {
-  const pump = pumps.value.find(p => p.code === node.code || p.name === node.name)
+function getPumpHead(node: PipelineNode): number {
+  const pump = findPumpByNode(node)
   if (pump) {
     const data = realtimeData.value.get(pump.id)
-    return data?.head
+    if (data && typeof data.head === 'number') return data.head
+    if (pump.units && pump.units.length > 0) {
+      const running = pump.units.find((u: any) => u.status === 'running')
+      if (running) return running.head || pump.head
+    }
+    return pump.head
   }
+  return 0
 }
 
 function getProgressColor(node: PipelineNode): string {

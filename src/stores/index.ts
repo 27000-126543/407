@@ -69,6 +69,11 @@ export const useScheduleStore = defineStore('schedule', () => {
     await loadSchedules()
   }
 
+  async function rejectSchedule(id: number, approver: string, reason: string) {
+    await api.schedule.reject(id, approver, reason)
+    await loadSchedules()
+  }
+
   const pendingApproval = computed(() =>
     schedules.value.filter(s => s.status === 'pending_approval' || s.status === 'adjust_requested')
   )
@@ -80,7 +85,7 @@ export const useScheduleStore = defineStore('schedule', () => {
 
   return {
     schedules, selectedSchedule, loadSchedules, createSchedule, updateSchedule,
-    approveSchedule, confirmSchedule, requestAdjust, pendingApproval, todaysSchedules
+    approveSchedule, confirmSchedule, requestAdjust, rejectSchedule, pendingApproval, todaysSchedules
   }
 })
 
@@ -111,6 +116,12 @@ export const useMonitoringStore = defineStore('monitoring', () => {
     return alerts.value
   }
 
+  async function insertAlert(alert: any) {
+    const id = await api.monitoring.insertAlert(alert)
+    await loadAlerts()
+    return id
+  }
+
   async function ackAlert(id: number, operator: string) {
     await api.monitoring.ackAlert(id, operator)
     await loadAlerts()
@@ -120,7 +131,7 @@ export const useMonitoringStore = defineStore('monitoring', () => {
     alerts.value.filter(a => !a.acknowledged)
   )
 
-  return { realtimeData, alerts, historyData, loadRealtime, loadHistory, insertData, loadAlerts, ackAlert, unacknowledgedAlerts }
+  return { realtimeData, alerts, historyData, loadRealtime, loadHistory, insertData, loadAlerts, insertAlert, ackAlert, unacknowledgedAlerts }
 })
 
 export const useMaintenanceStore = defineStore('maintenance', () => {

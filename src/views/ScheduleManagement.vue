@@ -173,7 +173,7 @@
         <el-descriptions-item label="计划开始时间">{{ currentSchedule.planStartTime }}</el-descriptions-item>
         <el-descriptions-item label="计划结束时间">{{ currentSchedule.planEndTime }}</el-descriptions-item>
         <el-descriptions-item label="计划流量">{{ currentSchedule.plannedFlow }} m³/h</el-descriptions-item>
-        <el-descriptions-item label="运行机组">{{ currentSchedule.operatingUnits.join(', ') || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="运行机组">{{ getOperatingUnitsText(currentSchedule) }}</el-descriptions-item>
         <el-descriptions-item label="状态">
           <el-tag :type="getScheduleStatusType(currentSchedule.status)" size="small">
             {{ getScheduleStatusText(currentSchedule.status) }}
@@ -348,6 +348,16 @@ function handleReset() {
   handleSearch()
 }
 
+function getOperatingUnitsText(schedule: Schedule): string {
+  if (!schedule.operatingUnits || schedule.operatingUnits.length === 0) return '-'
+  const pump = pumpStore.pumps.find(p => p.id === schedule.pumpId)
+  if (!pump || !pump.units) return schedule.operatingUnits.join(', ')
+  return schedule.operatingUnits.map(uid => {
+    const unit = (pump.units as any[]).find(u => u.id === uid)
+    return unit ? unit.unitNumber : String(uid)
+  }).join('、')
+}
+
 function handleView(row: Schedule) {
   currentSchedule.value = row
   detailDialogVisible.value = true
@@ -407,15 +417,11 @@ async function submitReject() {
     return
   }
   try {
-    await scheduleStore.updateSchedule(currentSchedule.value.id, {
-      status: 'rejected',
-      approver: '当前用户',
-      approvalComment: rejectForm.reason,
-      approvalTime: dayjs().format('YYYY-MM-DD HH:mm:ss')
-    })
+    await scheduleStore.rejectSchedule(currentSchedule.value.id, '当前用户', rejectForm.reason)
     ElMessage.success('已驳回')
     rejectDialogVisible.value = false
   } catch (error) {
+    console.error('驳回失败:', error)
     ElMessage.error('操作失败')
   }
 }
