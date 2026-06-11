@@ -127,11 +127,24 @@ export const useMonitoringStore = defineStore('monitoring', () => {
     await loadAlerts()
   }
 
+  async function loadDisposalRecords(alertId: number) {
+    return await api.monitoring.disposalRecords(alertId)
+  }
+
+  async function addDisposalRecord(data: any) {
+    const id = await api.monitoring.addDisposalRecord(data)
+    return id
+  }
+
+  async function updateDisposalRecord(id: number, data: any) {
+    await api.monitoring.updateDisposalRecord(id, data)
+  }
+
   const unacknowledgedAlerts = computed(() =>
     alerts.value.filter(a => !a.acknowledged)
   )
 
-  return { realtimeData, alerts, historyData, loadRealtime, loadHistory, insertData, loadAlerts, insertAlert, ackAlert, unacknowledgedAlerts }
+  return { realtimeData, alerts, historyData, loadRealtime, loadHistory, insertData, loadAlerts, insertAlert, ackAlert, loadDisposalRecords, addDisposalRecord, updateDisposalRecord, unacknowledgedAlerts }
 })
 
 export const useMaintenanceStore = defineStore('maintenance', () => {

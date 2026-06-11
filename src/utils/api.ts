@@ -276,6 +276,7 @@ function generateMockPipelineNodes(): any[] {
 const mockPumps = generateMockPumps()
 const mockSchedules = generateMockSchedules()
 const mockAlerts = generateMockAlerts()
+const mockDisposalRecords: any[] = []
 const mockWeather = generateMockWeather()
 const mockInventory = generateMockInventory()
 const mockMaintenance = generateMockMaintenance()

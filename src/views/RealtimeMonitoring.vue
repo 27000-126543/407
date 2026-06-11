@@ -589,19 +589,34 @@ async function checkAndShowAlert(data: MonitoringData, pump: Pump) {
   }
 
   if (alert.id !== lastAlertId.value) {
-    currentAlert.value = alert
-    alertDialogVisible.value = true
     lastAlertId.value = alert.id
     playAlertSound(alert.alertLevel)
 
     try {
-      await monitoringStore.insertAlert(alert)
+      const realId = await monitoringStore.insertAlert(alert)
+      alert.id = realId
+      currentAlert.value = alert
+      alertDialogVisible.value = true
     } catch (e) {
       console.error('保存报警失败', e)
+      currentAlert.value = alert
+      alertDialogVisible.value = true
     }
 
     if (autoAction) {
       ElMessage.warning(autoActionResult || autoAction)
+      try {
+        await monitoringStore.addDisposalRecord({
+          alertId: alert.id,
+          action: autoAction,
+          operator: '系统自动',
+          assignee: '',
+          progress: 'completed',
+          remark: autoActionResult || ''
+        })
+      } catch (e) {
+        console.error('写入处置记录失败', e)
+      }
     }
   }
 }
@@ -609,15 +624,29 @@ async function checkAndShowAlert(data: MonitoringData, pump: Pump) {
 async function startBackupPump(unit: PumpUnit) {
   try {
     await ElMessageBox.confirm(
-      `确定要启动 ${unit.unitNumber}# 备用泵吗？`,
+      `确定要启动 ${unit.unitNumber} 备用泵吗？`,
       '启动确认',
       { type: 'warning' }
     )
     unit.status = 'running'
-    unit.current = 60 + Math.random() * 20
-    unit.flow = 500 + Math.random() * 200
-    unit.head = 16 + Math.random() * 3
-    ElMessage.success(`${unit.unitNumber}# 备用泵已启动`)
+    unit.current = (unit.ratedCurrent || 100) * 0.9
+    unit.flow = (unit.ratedFlow || 500) * 0.85
+    unit.head = unit.ratedHead || 18
+    ElMessage.success(`${unit.unitNumber} 备用泵已启动`)
+    if (currentAlert.value) {
+      try {
+        await monitoringStore.addDisposalRecord({
+          alertId: currentAlert.value.id,
+          action: `手动启动备用泵 ${unit.unitNumber}`,
+          operator: '当前用户',
+          assignee: '当前用户',
+          progress: 'completed',
+          remark: `备用泵 ${unit.unitNumber} 已手动启动`
+        })
+      } catch (e) {
+        console.error('写入处置记录失败', e)
+      }
+    }
   } catch {
     // user cancelled
   }
@@ -626,15 +655,28 @@ async function startBackupPump(unit: PumpUnit) {
 async function stopPump(unit: PumpUnit) {
   try {
     await ElMessageBox.confirm(
-      `确定要停止 ${unit.unitNumber}# 泵吗？`,
+      `确定要停止 ${unit.unitNumber} 泵运行吗？`,
       '停止确认',
       { type: 'warning' }
     )
     unit.status = 'standby'
-    unit.current = undefined
-    unit.flow = undefined
-    unit.head = undefined
-    ElMessage.success(`${unit.unitNumber}# 泵已停止`)
+    unit.current = 1
+    unit.flow = 0
+    ElMessage.success(`${unit.unitNumber} 泵已停止`)
+    if (currentAlert.value) {
+      try {
+        await monitoringStore.addDisposalRecord({
+          alertId: currentAlert.value.id,
+          action: `手动停止泵 ${unit.unitNumber}`,
+          operator: '当前用户',
+          assignee: '当前用户',
+          progress: 'completed',
+          remark: `泵 ${unit.unitNumber} 已手动停止，恢复待机`
+        })
+      } catch (e) {
+        console.error('写入处置记录失败', e)
+      }
+    }
   } catch {
     // user cancelled
   }

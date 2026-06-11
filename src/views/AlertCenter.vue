@@ -6,6 +6,10 @@
         报警事件中心
       </h2>
       <div class="header-actions">
+        <el-button @click="exportAlerts">
+          <el-icon><Download /></el-icon>
+          导出
+        </el-button>
         <el-button type="primary" @click="loadAlerts">
           <el-icon><Refresh /></el-icon>
           刷新
@@ -70,11 +74,40 @@
           <div class="filter-bar">
             <div class="filter-left">
               <el-select
+                v-model="filterPumpId"
+                placeholder="泵站"
+                clearable
+                size="default"
+                style="width: 140px;"
+              >
+                <el-option
+                  v-for="p in pumpStore.pumps"
+                  :key="p.id"
+                  :label="p.name"
+                  :value="p.id"
+                />
+              </el-select>
+              <el-select
+                v-model="filterAlertType"
+                placeholder="报警类型"
+                clearable
+                size="default"
+                style="width: 120px;"
+              >
+                <el-option label="电流超限" value="电流超限" />
+                <el-option label="水位超限" value="水位超限" />
+                <el-option label="电压异常" value="电压异常" />
+                <el-option label="流量超限" value="流量超限" />
+                <el-option label="压力异常" value="压力异常" />
+                <el-option label="振动超限" value="振动超限" />
+                <el-option label="温度过高" value="温度过高" />
+              </el-select>
+              <el-select
                 v-model="filterLevel"
                 placeholder="报警级别"
                 clearable
                 size="default"
-                style="width: 120px; margin-right: 8px;"
+                style="width: 110px;"
               >
                 <el-option label="紧急" value="critical" />
                 <el-option label="危险" value="danger" />
@@ -85,10 +118,21 @@
                 placeholder="确认状态"
                 clearable
                 size="default"
-                style="width: 120px; margin-right: 8px;"
+                style="width: 110px;"
               >
                 <el-option label="未确认" :value="false" />
                 <el-option label="已确认" :value="true" />
+              </el-select>
+              <el-select
+                v-model="filterDisposal"
+                placeholder="处置状态"
+                clearable
+                size="default"
+                style="width: 110px;"
+              >
+                <el-option label="待处置" value="pending" />
+                <el-option label="处置中" value="in_progress" />
+                <el-option label="已完成" value="completed" />
               </el-select>
               <el-date-picker
                 v-model="dateRange"
@@ -97,7 +141,7 @@
                 start-placeholder="开始时间"
                 end-placeholder="结束时间"
                 size="default"
-                style="width: 360px;"
+                style="width: 340px;"
               />
             </div>
             <div class="filter-right">
@@ -113,50 +157,56 @@
 
           <el-table
             ref="tableRef"
-            :data="filteredAlerts"
+            :data="paginatedAlerts"
             style="width: 100%; margin-top: 12px;"
             stripe
             @selection-change="handleSelectionChange"
             class="alert-table"
           >
             <el-table-column type="selection" width="48" />
-            <el-table-column prop="timestamp" label="时间" width="160">
+            <el-table-column prop="timestamp" label="时间" width="155">
               <template #default="{ row }">
                 {{ formatDateTime(row.timestamp) }}
               </template>
             </el-table-column>
-            <el-table-column label="泵站" width="120">
+            <el-table-column label="泵站" width="110">
               <template #default="{ row }">
                 {{ getPumpName(row.pumpId) }}
               </template>
             </el-table-column>
-            <el-table-column prop="alertType" label="报警类型" width="120" />
-            <el-table-column label="级别" width="80">
+            <el-table-column prop="alertType" label="报警类型" width="100" />
+            <el-table-column label="级别" width="70">
               <template #default="{ row }">
                 <el-tag :type="getAlertLevelType(row.alertLevel)" size="small">
                   {{ getAlertLevelText(row.alertLevel) }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="parameter" label="参数" width="100" />
-            <el-table-column label="实际值" width="100">
+            <el-table-column label="实际值" width="85">
               <template #default="{ row }">
-                <span class="actual-value">{{ row.actualValue.toFixed(2) }}</span>
+                <span class="actual-value">{{ row.actualValue?.toFixed(2) ?? '-' }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="阈值" width="100">
+            <el-table-column label="阈值" width="85">
               <template #default="{ row }">
-                <span class="threshold-value">{{ row.threshold.toFixed(2) }}</span>
+                <span class="threshold-value">{{ row.threshold?.toFixed(2) ?? '-' }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="状态" width="80">
+            <el-table-column label="确认" width="70">
               <template #default="{ row }">
                 <el-tag :type="row.acknowledged ? 'success' : 'warning'" size="small">
                   {{ row.acknowledged ? '已确认' : '未确认' }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="140" fixed="right">
+            <el-table-column label="处置" width="70">
+              <template #default="{ row }">
+                <el-tag :type="getDisposalTagType(row)" size="small">
+                  {{ getDisposalStatusText(row) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="130" fixed="right">
               <template #default="{ row }">
                 <el-button type="primary" link size="small" @click="viewDetail(row)">
                   详情
@@ -200,8 +250,9 @@
     <el-dialog
       v-model="detailDialogVisible"
       title="报警详情"
-      width="600px"
+      width="720px"
       class="detail-dialog"
+      @close="disposalRecords = []"
     >
       <el-descriptions :column="2" border v-if="currentAlert">
         <el-descriptions-item label="报警时间">
@@ -222,10 +273,10 @@
           {{ currentAlert.parameter }}
         </el-descriptions-item>
         <el-descriptions-item label="实际值">
-          <span class="highlight-value">{{ currentAlert.actualValue.toFixed(2) }}</span>
+          <span class="highlight-value">{{ currentAlert.actualValue?.toFixed(2) ?? '-' }}</span>
         </el-descriptions-item>
         <el-descriptions-item label="阈值">
-          <span class="threshold-value">{{ currentAlert.threshold.toFixed(2) }}</span>
+          <span class="threshold-value">{{ currentAlert.threshold?.toFixed(2) ?? '-' }}</span>
         </el-descriptions-item>
         <el-descriptions-item label="确认状态">
           <el-tag :type="currentAlert.acknowledged ? 'success' : 'warning'">
@@ -236,9 +287,10 @@
           {{ currentAlert.message }}
         </el-descriptions-item>
         <el-descriptions-item label="自动处理动作" :span="2" v-if="currentAlert.autoAction">
+          <el-tag type="info" size="small" style="margin-right:6px;">自动</el-tag>
           {{ currentAlert.autoAction }}
         </el-descriptions-item>
-        <el-descriptions-item label="处理结果" :span="2" v-if="currentAlert.autoActionResult">
+        <el-descriptions-item label="自动处理结果" :span="2" v-if="currentAlert.autoActionResult">
           {{ currentAlert.autoActionResult }}
         </el-descriptions-item>
         <el-descriptions-item label="确认人" v-if="currentAlert.acknowledgedBy">
@@ -248,6 +300,71 @@
           {{ formatDateTime(currentAlert.acknowledgedTime) }}
         </el-descriptions-item>
       </el-descriptions>
+
+      <div style="margin-top: 20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h4 style="margin:0;font-size:14px;">处置跟踪记录</h4>
+          <el-button type="primary" size="small" @click="showAddDisposal = true">新增处置记录</el-button>
+        </div>
+        <el-table :data="disposalRecords" size="small" stripe border v-if="disposalRecords.length > 0">
+          <el-table-column prop="createTime" label="时间" width="155">
+            <template #default="{ row }">
+              {{ formatDateTime(row.createTime) }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="action" label="处置动作" width="160" />
+          <el-table-column prop="operator" label="操作人" width="80" />
+          <el-table-column prop="assignee" label="指派人" width="80" />
+          <el-table-column label="进度" width="80">
+            <template #default="{ row }">
+              <el-tag :type="row.progress === 'completed' ? 'success' : row.progress === 'in_progress' ? 'warning' : 'info'" size="small">
+                {{ row.progress === 'completed' ? '已完成' : row.progress === 'in_progress' ? '处置中' : '待处置' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="remark" label="备注" min-width="120" />
+          <el-table-column label="操作" width="70">
+            <template #default="{ row }">
+              <el-button type="primary" link size="small" @click="editDisposal(row)">编辑</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-empty v-else description="暂无处置记录" :image-size="40" />
+      </div>
+
+      <el-dialog
+        v-model="showAddDisposal"
+        title="新增处置记录"
+        width="440px"
+        append-to-body
+      >
+        <el-form label-width="80px" size="default">
+          <el-form-item label="处置动作">
+            <el-input v-model="disposalForm.action" placeholder="如：派工、现场检查、停泵恢复" />
+          </el-form-item>
+          <el-form-item label="操作人">
+            <el-input v-model="disposalForm.operator" placeholder="操作人" />
+          </el-form-item>
+          <el-form-item label="指派人">
+            <el-input v-model="disposalForm.assignee" placeholder="指派给谁" />
+          </el-form-item>
+          <el-form-item label="处置进度">
+            <el-select v-model="disposalForm.progress" style="width:100%;">
+              <el-option label="待处置" value="pending" />
+              <el-option label="处置中" value="in_progress" />
+              <el-option label="已完成" value="completed" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="备注">
+            <el-input v-model="disposalForm.remark" type="textarea" :rows="2" placeholder="处理备注" />
+          </el-form-item>
+        </el-form>
+        <template #footer>
+          <el-button @click="showAddDisposal = false">取消</el-button>
+          <el-button type="primary" @click="saveDisposal">保存</el-button>
+        </template>
+      </el-dialog>
+
       <template #footer>
         <el-button @click="detailDialogVisible = false">关闭</el-button>
         <el-button
@@ -263,12 +380,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import * as echarts from 'echarts'
 import dayjs from 'dayjs'
 import {
   BellFilled, WarningFilled, Warning, InfoFilled,
-  CircleCheckFilled, Refresh
+  CircleCheckFilled, Refresh, Download
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { usePumpStore, useMonitoringStore } from '@/stores'
@@ -280,8 +397,11 @@ import type { Alert } from '@/types'
 const pumpStore = usePumpStore()
 const monitoringStore = useMonitoringStore()
 
+const filterPumpId = ref<number | null>(null)
+const filterAlertType = ref<string | null>(null)
 const filterLevel = ref<string | null>(null)
 const filterStatus = ref<boolean | null>(null)
+const filterDisposal = ref<string | null>(null)
 const dateRange = ref<[Date, Date] | null>(null)
 const currentPage = ref(1)
 const pageSize = ref(20)
@@ -292,23 +412,49 @@ const levelChartRef = ref<HTMLElement>()
 const typeChartRef = ref<HTMLElement>()
 const tableRef = ref()
 
+const disposalRecords = ref<any[]>([])
+const showAddDisposal = ref(false)
+const disposalForm = ref({ action: '', operator: '当前用户', assignee: '', progress: 'pending', remark: '' })
+const editingDisposalId = ref<number | null>(null)
+
 let levelChart: echarts.ECharts | null = null
 let typeChart: echarts.ECharts | null = null
 
-const mockAlerts = ref<Alert[]>([])
-
 const alerts = computed<Alert[]>(() => {
-  return monitoringStore.alerts.length > 0 ? monitoringStore.alerts : mockAlerts.value
+  return monitoringStore.alerts
+})
+
+const disposalMap = computed(() => {
+  const map = new Map<number, string>()
+  disposalRecords.value.forEach(r => {
+    const existing = map.get(r.alertId)
+    if (!existing || r.progress === 'completed') {
+      map.set(r.alertId, r.progress || 'pending')
+    }
+  })
+  return map
 })
 
 const filteredAlerts = computed<Alert[]>(() => {
   let result = [...alerts.value]
 
+  if (filterPumpId.value) {
+    result = result.filter(a => a.pumpId === filterPumpId.value)
+  }
+  if (filterAlertType.value) {
+    result = result.filter(a => a.alertType === filterAlertType.value)
+  }
   if (filterLevel.value) {
     result = result.filter(a => a.alertLevel === filterLevel.value)
   }
   if (filterStatus.value !== null) {
     result = result.filter(a => a.acknowledged === filterStatus.value)
+  }
+  if (filterDisposal.value) {
+    result = result.filter(a => {
+      const dp = a.autoAction ? 'completed' : 'pending'
+      return dp === filterDisposal.value
+    })
   }
   if (dateRange.value && dateRange.value[0] && dateRange.value[1]) {
     const start = dateRange.value[0].getTime()
@@ -322,6 +468,11 @@ const filteredAlerts = computed<Alert[]>(() => {
   result.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
 
   return result
+})
+
+const paginatedAlerts = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filteredAlerts.value.slice(start, start + pageSize.value)
 })
 
 const totalCount = computed(() => alerts.value.length)
@@ -338,25 +489,38 @@ function getPumpName(pumpId: number): string {
   return pump?.name || `泵站#${pumpId}`
 }
 
+function getDisposalTagType(alert: Alert): string {
+  if (alert.autoAction) return 'success'
+  return 'info'
+}
+
+function getDisposalStatusText(alert: Alert): string {
+  if (alert.autoAction) return '已处置'
+  return '待处置'
+}
+
 function handleSelectionChange(selection: Alert[]) {
   selectedAlerts.value = selection.filter(a => !a.acknowledged)
 }
 
-function viewDetail(alert: Alert) {
+async function viewDetail(alert: Alert) {
   currentAlert.value = alert
   detailDialogVisible.value = true
+  await loadDisposalRecords(alert.id)
+}
+
+async function loadDisposalRecords(alertId: number) {
+  try {
+    disposalRecords.value = await monitoringStore.loadDisposalRecords(alertId)
+  } catch (e) {
+    disposalRecords.value = []
+  }
 }
 
 async function acknowledge(alert: Alert) {
   try {
     await ElMessageBox.confirm('确定要确认该报警吗？', '确认报警', { type: 'warning' })
     await monitoringStore.ackAlert(alert.id, '当前用户')
-    const mockAlert = mockAlerts.value.find(a => a.id === alert.id)
-    if (mockAlert) {
-      mockAlert.acknowledged = true
-      mockAlert.acknowledgedBy = '当前用户'
-      mockAlert.acknowledgedTime = new Date().toISOString()
-    }
     ElMessage.success('报警已确认')
     updateCharts()
   } catch {
@@ -381,12 +545,6 @@ async function batchAcknowledge() {
     )
     for (const alert of selectedAlerts.value) {
       await monitoringStore.ackAlert(alert.id, '当前用户')
-      const mockAlert = mockAlerts.value.find(a => a.id === alert.id)
-      if (mockAlert) {
-        mockAlert.acknowledged = true
-        mockAlert.acknowledgedBy = '当前用户'
-        mockAlert.acknowledgedTime = new Date().toISOString()
-      }
     }
     ;(tableRef.value as any)?.clearSelection()
     ElMessage.success(`已确认 ${selectedAlerts.value.length} 条报警`)
@@ -396,73 +554,85 @@ async function batchAcknowledge() {
   }
 }
 
-function generateMockAlerts() {
-  const alertTypes = ['电流超限', '电压异常', '流量超限', '水位超限', '压力异常', '振动超限', '温度过高']
-  const parameters = ['电流', '电压', '流量', '前池水位', '出口压力', '振动', '温度']
-  const levels: Array<'critical' | 'danger' | 'warning'> = ['critical', 'danger', 'warning']
+function editDisposal(row: any) {
+  editingDisposalId.value = row.id
+  disposalForm.value = {
+    action: row.action,
+    operator: row.operator,
+    assignee: row.assignee || '',
+    progress: row.progress || 'pending',
+    remark: row.remark || ''
+  }
+  showAddDisposal.value = true
+}
 
-  const now = dayjs()
-  const alerts: Alert[] = []
-
-  for (let i = 0; i < 50; i++) {
-    const pumpId = Math.floor(Math.random() * 3) + 1
-    const typeIndex = Math.floor(Math.random() * alertTypes.length)
-    const level = levels[Math.floor(Math.random() * levels.length)]
-    const timestamp = now.subtract(Math.floor(Math.random() * 72), 'hour').toISOString()
-    const acknowledged = Math.random() > 0.4
-
-    let actualValue: number
-    let threshold: number
-
-    switch (typeIndex) {
-      case 0:
-        actualValue = 100 + Math.random() * 50
-        threshold = 100
-        break
-      case 1:
-        actualValue = Math.random() > 0.5 ? 420 + Math.random() * 30 : 340 - Math.random() * 30
-        threshold = 380
-        break
-      case 2:
-        actualValue = 1000 + Math.random() * 300
-        threshold = 1000
-        break
-      case 3:
-        actualValue = 3.5 + Math.random() * 1.5
-        threshold = 3.5
-        break
-      case 4:
-        actualValue = 0.6 + Math.random() * 0.3
-        threshold = 0.6
-        break
-      case 5:
-        actualValue = 5 + Math.random() * 5
-        threshold = 4.5
-        break
-      default:
-        actualValue = 85 + Math.random() * 20
-        threshold = 85
+async function saveDisposal() {
+  if (!disposalForm.value.action) {
+    ElMessage.warning('请填写处置动作')
+    return
+  }
+  try {
+    if (editingDisposalId.value) {
+      await monitoringStore.updateDisposalRecord(editingDisposalId.value, disposalForm.value)
+      ElMessage.success('处置记录已更新')
+    } else if (currentAlert.value) {
+      await monitoringStore.addDisposalRecord({
+        alertId: currentAlert.value.id,
+        ...disposalForm.value
+      })
+      ElMessage.success('处置记录已添加')
     }
+    showAddDisposal.value = false
+    editingDisposalId.value = null
+    disposalForm.value = { action: '', operator: '当前用户', assignee: '', progress: 'pending', remark: '' }
+    if (currentAlert.value) {
+      await loadDisposalRecords(currentAlert.value.id)
+    }
+  } catch (e) {
+    ElMessage.error('保存处置记录失败')
+  }
+}
 
-    alerts.push({
-      id: i + 1,
-      pumpId,
-      alertType: alertTypes[typeIndex],
-      alertLevel: level,
-      parameter: parameters[typeIndex],
-      actualValue,
-      threshold,
-      message: `泵站${pumpId} ${alertTypes[typeIndex]}，实际值 ${actualValue.toFixed(2)}，阈值 ${threshold.toFixed(2)}`,
-      timestamp,
-      acknowledged,
-      acknowledgedBy: acknowledged ? '操作员' + (Math.floor(Math.random() * 3) + 1) : undefined,
-      acknowledgedTime: acknowledged ? now.subtract(Math.floor(Math.random() * 24), 'hour').toISOString() : undefined
-    })
+watch(showAddDisposal, (val) => {
+  if (!val) {
+    editingDisposalId.value = null
+    disposalForm.value = { action: '', operator: '当前用户', assignee: '', progress: 'pending', remark: '' }
+  }
+})
+
+function exportAlerts() {
+  const data = filteredAlerts.value
+  if (data.length === 0) {
+    ElMessage.warning('暂无数据可导出')
+    return
   }
 
-  mockAlerts.value = alerts.sort(
-    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-  )
+  const headers = ['时间', '泵站', '报警类型', '级别', '参数', '实际值', '阈值', '确认状态', '自动处理动作', '处理结果', '确认人', '确认时间']
+  const rows = data.map(a => [
+    formatDateTime(a.timestamp),
+    getPumpName(a.pumpId),
+    a.alertType,
+    getAlertLevelText(a.alertLevel),
+    a.parameter,
+    a.actualValue?.toFixed(2) ?? '',
+    a.threshold?.toFixed(2) ?? '',
+    a.acknowledged ? '已确认' : '未确认',
+    a.autoAction || '',
+    a.autoActionResult || '',
+    a.acknowledgedBy || '',
+    a.acknowledgedTime ? formatDateTime(a.acknowledgedTime) : ''
+  ])
+
+  const BOM = '\uFEFF'
+  const csv = BOM + [headers.join(','), ...rows.map(r => r.map(c => `"${c}"`).join(','))].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `报警事件_${dayjs().format('YYYYMMDD_HHmmss')}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+  ElMessage.success(`已导出 ${data.length} 条报警记录`)
 }
 
 function initLevelChart() {
@@ -593,13 +763,9 @@ function updateCharts() {
 async function loadAlerts() {
   try {
     await monitoringStore.loadAlerts()
-    if (monitoringStore.alerts.length === 0) {
-      generateMockAlerts()
-    }
     updateCharts()
     ElMessage.success('数据已刷新')
   } catch (e) {
-    generateMockAlerts()
     updateCharts()
   }
 }
@@ -751,5 +917,6 @@ onUnmounted(() => {
 .header-actions {
   display: flex;
   align-items: center;
+  gap: 8px;
 }
 </style>

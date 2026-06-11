@@ -202,6 +202,25 @@ class PumpDatabase {
       CREATE INDEX IF NOT EXISTS idx_schedules_date ON schedules(scheduleDate);
       CREATE INDEX IF NOT EXISTS idx_alerts_unacknowledged ON alerts(acknowledged);
     `);
+        try {
+            this.db.exec(`
+        CREATE TABLE IF NOT EXISTS alert_disposal_records (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          alertId INTEGER NOT NULL,
+          action TEXT NOT NULL,
+          operator TEXT NOT NULL,
+          assignee TEXT,
+          progress TEXT DEFAULT 'pending',
+          remark TEXT,
+          createTime TEXT DEFAULT (datetime('now')),
+          FOREIGN KEY (alertId) REFERENCES alerts(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_disposal_alert ON alert_disposal_records(alertId);
+      `);
+        }
+        catch (e) {
+            console.warn('创建处置记录表跳过:', e);
+        }
         this.migrate();
     }
     migrate() {
@@ -573,12 +592,18 @@ class PumpDatabase {
     getAlerts() {
         return this.db.prepare(`
       SELECT * FROM alerts ORDER BY timestamp DESC
-    `).all();
+    `).all().map((a) => ({
+            ...a,
+            acknowledged: !!a.acknowledged
+        }));
     }
     getActiveAlerts() {
         return this.db.prepare(`
       SELECT * FROM alerts WHERE acknowledged = 0 ORDER BY timestamp DESC
-    `).all();
+    `).all().map((a) => ({
+            ...a,
+            acknowledged: !!a.acknowledged
+        }));
     }
     acknowledgeAlert(id, operator) {
         this.db.prepare(`
@@ -822,6 +847,24 @@ class PumpDatabase {
             ...n,
             connectedNodes: JSON.parse(n.connectedNodes || '[]')
         }));
+    }
+    getDisposalRecords(alertId) {
+        return this.db.prepare(`
+      SELECT * FROM alert_disposal_records WHERE alertId = ? ORDER BY createTime ASC
+    `).all(alertId);
+    }
+    addDisposalRecord(data) {
+        const result = this.db.prepare(`
+      INSERT INTO alert_disposal_records (alertId, action, operator, assignee, progress, remark)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(data.alertId, data.action, data.operator, data.assignee || null, data.progress || 'pending', data.remark || null);
+        return result.lastInsertRowid;
+    }
+    updateDisposalRecord(id, data) {
+        this.db.prepare(`
+      UPDATE alert_disposal_records SET progress = ?, remark = ?, assignee = ?
+      WHERE id = ?
+    `).run(data.progress, data.remark, data.assignee, id);
     }
     close() {
         this.db.close();
