@@ -202,6 +202,44 @@ class PumpDatabase {
       CREATE INDEX IF NOT EXISTS idx_schedules_date ON schedules(scheduleDate);
       CREATE INDEX IF NOT EXISTS idx_alerts_unacknowledged ON alerts(acknowledged);
     `);
+        this.migrate();
+    }
+    migrate() {
+        try {
+            const pumpCount = this.db.prepare('SELECT COUNT(*) as count FROM pumps').get();
+            if (pumpCount.count === 0)
+                return;
+            const pumps = this.db.prepare('SELECT id, code, name FROM pumps ORDER BY id').all();
+            const nodes = this.db.prepare('SELECT id, code, name, type FROM pipeline_nodes WHERE type = ?').all('pump');
+            if (nodes.length > 0 && pumps.length > 0) {
+                const firstNodeCode = nodes[0].code;
+                const firstPumpCode = pumps[0].code;
+                if (firstNodeCode !== firstPumpCode && firstNodeCode.startsWith('N')) {
+                    nodes.forEach((node, idx) => {
+                        const pump = pumps[idx];
+                        if (pump) {
+                            this.db.prepare('UPDATE pipeline_nodes SET code = ?, name = ? WHERE id = ?')
+                                .run(pump.code, pump.name, node.id);
+                        }
+                    });
+                }
+            }
+            const units = this.db.prepare('SELECT id, unitNumber FROM pump_units LIMIT 5').all();
+            if (units.length > 0 && units[0].unitNumber.includes('#')) {
+                const allUnits = this.db.prepare('SELECT id, unitNumber FROM pump_units').all();
+                const updateStmt = this.db.prepare('UPDATE pump_units SET unitNumber = ? WHERE id = ?');
+                allUnits.forEach(u => {
+                    let newNum = u.unitNumber.replace(/#/g, '');
+                    if (newNum.endsWith('(备用)')) {
+                        newNum = newNum.replace('(备用)', '') + '(备用)';
+                    }
+                    updateStmt.run(newNum, u.id);
+                });
+            }
+        }
+        catch (e) {
+            console.warn('数据库迁移跳过:', e);
+        }
     }
     seed() {
         const pumpCount = this.db.prepare('SELECT COUNT(*) as count FROM pumps').get();
@@ -265,7 +303,11 @@ class PumpDatabase {
             const pumpId = result.lastInsertRowid;
             const unitCount = idx === 4 ? 4 : 3;
             for (let i = 1; i <= unitCount; i++) {
-                insertUnit.run(pumpId, `${i}#`, pump.equipmentModel, pump.designFlow / (unitCount - (i === unitCount ? 1 : 0)), pump.head, pump.power / (unitCount - (i === unitCount ? 1 : 0)), pump.ratedCurrent / (unitCount - (i === unitCount ? 1 : 0)), i === unitCount ? 'standby' : (i === 1 ? 'running' : 'standby'), i === unitCount ? 1 : 0);
+                const isBackup = i === unitCount;
+                const unitFlow = pump.designFlow / (unitCount - (isBackup ? 1 : 0));
+                const unitPower = pump.power / (unitCount - (isBackup ? 1 : 0));
+                const unitCurrent = pump.ratedCurrent / (unitCount - (isBackup ? 1 : 0));
+                insertUnit.run(pumpId, isBackup ? `${i}(备用)` : `${i}`, pump.equipmentModel, unitFlow, pump.head, unitPower, unitCurrent, i === 1 ? 'running' : 'standby', isBackup ? 1 : 0);
             }
         });
         const insertWeather = this.db.prepare(`
@@ -278,15 +320,15 @@ class PumpDatabase {
             insertWeather.run(date, 25 + Math.random() * 8, 60 + Math.random() * 30, rainfall, rainfall > 30 ? (rainfall > 50 ? 'storm' : 'heavy') : (rainfall > 10 ? 'moderate' : 'light'), rainfall * 1.2, 2 + Math.random() * 5, 1.5 + Math.sin(i * 0.5) * 0.8);
         }
         const pipelineNodes = [
-            { code: 'N001', name: '城东泵站出口', type: 'pump', longitude: 114.3256, latitude: 30.5678, connected: [2, 3], maxLevel: 5.0, warningLevel: 3.5 },
+            { code: 'CD-001', name: '城东一号泵站', type: 'pump', longitude: 114.3256, latitude: 30.5678, connected: [2, 3], maxLevel: 5.0, warningLevel: 3.5 },
             { code: 'N002', name: '城南干线节点1', type: 'manhole', longitude: 114.3200, latitude: 30.5550, connected: [1, 4], maxLevel: 4.5, warningLevel: 3.0 },
             { code: 'N003', name: '城西干线节点1', type: 'manhole', longitude: 114.3050, latitude: 30.5650, connected: [1, 5], maxLevel: 4.8, warningLevel: 3.2 },
-            { code: 'N004', name: '城南泵站出口', type: 'pump', longitude: 114.3123, latitude: 30.5432, connected: [2, 6], maxLevel: 4.2, warningLevel: 2.8 },
-            { code: 'N005', name: '城西泵站出口', type: 'pump', longitude: 114.2890, latitude: 30.5612, connected: [3, 7], maxLevel: 4.5, warningLevel: 3.0 },
-            { code: 'N006', name: '城北泵站出口', type: 'pump', longitude: 114.3001, latitude: 30.5987, connected: [4, 8], maxLevel: 4.0, warningLevel: 2.7 },
+            { code: 'CD-002', name: '城南泵站', type: 'pump', longitude: 114.3123, latitude: 30.5432, connected: [2, 6], maxLevel: 4.2, warningLevel: 2.8 },
+            { code: 'CD-003', name: '城西泵站', type: 'pump', longitude: 114.2890, latitude: 30.5612, connected: [3, 7], maxLevel: 4.5, warningLevel: 3.0 },
+            { code: 'CD-004', name: '城北泵站', type: 'pump', longitude: 114.3001, latitude: 30.5987, connected: [4, 8], maxLevel: 4.0, warningLevel: 2.7 },
             { code: 'N007', name: '中心泵站入口', type: 'manhole', longitude: 114.2950, latitude: 30.5630, connected: [5, 9], maxLevel: 5.0, warningLevel: 3.5 },
             { code: 'N008', name: '东北排水主干', type: 'manhole', longitude: 114.3100, latitude: 30.5800, connected: [6, 9], maxLevel: 4.8, warningLevel: 3.3 },
-            { code: 'N009', name: '中心枢纽站出口', type: 'pump', longitude: 114.3015, latitude: 30.5650, connected: [7, 8, 10], maxLevel: 5.5, warningLevel: 3.8 },
+            { code: 'CD-005', name: '中心枢纽站', type: 'pump', longitude: 114.3015, latitude: 30.5650, connected: [7, 8, 10], maxLevel: 5.5, warningLevel: 3.8 },
             { code: 'N010', name: '长江排放口', type: 'outfall', longitude: 114.3300, latitude: 30.5500, connected: [9], maxLevel: 6.0, warningLevel: 4.0 }
         ];
         const insertNode = this.db.prepare(`
@@ -328,11 +370,15 @@ class PumpDatabase {
         }
     }
     getPumps() {
-        return this.db.prepare('SELECT * FROM pumps ORDER BY id').all().map((p) => ({
+        const pumps = this.db.prepare('SELECT * FROM pumps ORDER BY id').all().map((p) => ({
             ...p,
             upstreamPumpIds: JSON.parse(p.upstreamPumpIds || '[]'),
             downstreamPumpIds: JSON.parse(p.downstreamPumpIds || '[]')
         }));
+        pumps.forEach((pump) => {
+            pump.units = this.db.prepare('SELECT * FROM pump_units WHERE pumpId = ? ORDER BY id').all(pump.id);
+        });
+        return pumps;
     }
     getPump(id) {
         const pump = this.db.prepare('SELECT * FROM pumps WHERE id = ?').get(id);
@@ -404,6 +450,13 @@ class PumpDatabase {
         approvalTime = datetime('now'), updateTime = datetime('now')
       WHERE id = ?
     `).run(approver, comment, id);
+    }
+    rejectSchedule(id, approver, reason) {
+        this.db.prepare(`
+      UPDATE schedules SET status = 'rejected', approver = ?, approvalComment = ?,
+        approvalTime = datetime('now'), updateTime = datetime('now')
+      WHERE id = ?
+    `).run(approver, reason, id);
     }
     confirmSchedule(id, operator) {
         this.db.prepare(`
@@ -482,10 +535,16 @@ class PumpDatabase {
     }
     insertAlert(data) {
         const result = this.db.prepare(`
-      INSERT INTO alerts (pumpId, unitId, alertType, alertLevel, parameter, actualValue, threshold, message)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(data.pumpId, data.unitId, data.alertType, data.alertLevel, data.parameter, data.actualValue, data.threshold, data.message);
+      INSERT INTO alerts (pumpId, unitId, alertType, alertLevel, parameter, actualValue, threshold,
+        message, autoAction, autoActionResult)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(data.pumpId, data.unitId, data.alertType, data.alertLevel, data.parameter, data.actualValue, data.threshold, data.message, data.autoAction || null, data.autoActionResult || null);
         return result.lastInsertRowid;
+    }
+    getAlerts() {
+        return this.db.prepare(`
+      SELECT * FROM alerts ORDER BY timestamp DESC
+    `).all();
     }
     getActiveAlerts() {
         return this.db.prepare(`

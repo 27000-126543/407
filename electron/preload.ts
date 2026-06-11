@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('api', {
     create: (data: any) => ipcRenderer.invoke('schedule:create', data),
     update: (id: number, data: any) => ipcRenderer.invoke('schedule:update', id, data),
     approve: (id: number, approver: string, comment: string) => ipcRenderer.invoke('schedule:approve', id, approver, comment),
+    reject: (id: number, approver: string, reason: string) => ipcRenderer.invoke('schedule:reject', id, approver, reason),
     confirm: (id: number, operator: string) => ipcRenderer.invoke('schedule:confirm', id, operator),
     requestAdjust: (id: number, operator: string, reason: string) => ipcRenderer.invoke('schedule:requestAdjust', id, operator, reason)
   },
@@ -22,6 +23,7 @@ contextBridge.exposeInMainWorld('api', {
     history: (pumpId: number, start: string, end: string) => ipcRenderer.invoke('monitoring:history', pumpId, start, end),
     insert: (data: any) => ipcRenderer.invoke('monitoring:insert', data),
     alerts: () => ipcRenderer.invoke('monitoring:alerts'),
+    insertAlert: (alert: any) => ipcRenderer.invoke('monitoring:alert:insert', alert),
     ackAlert: (id: number, operator: string) => ipcRenderer.invoke('monitoring:alert:ack', id, operator)
   },
   maintenance: {

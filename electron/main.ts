@@ -64,13 +64,15 @@ function registerIpcHandlers() {
   ipcMain.handle('schedule:create', (_e, data: any) => db.createSchedule(data))
   ipcMain.handle('schedule:update', (_e, id: number, data: any) => db.updateSchedule(id, data))
   ipcMain.handle('schedule:approve', (_e, id: number, approver: string, comment: string) => db.approveSchedule(id, approver, comment))
+  ipcMain.handle('schedule:reject', (_e, id: number, approver: string, reason: string) => db.rejectSchedule(id, approver, reason))
   ipcMain.handle('schedule:confirm', (_e, id: number, operator: string) => db.confirmSchedule(id, operator))
   ipcMain.handle('schedule:requestAdjust', (_e, id: number, operator: string, reason: string) => db.requestScheduleAdjust(id, operator, reason))
 
   ipcMain.handle('monitoring:realtime', (_e, pumpId: number) => db.getRealtimeMonitoring(pumpId))
   ipcMain.handle('monitoring:history', (_e, pumpId: number, start: string, end: string) => db.getMonitoringHistory(pumpId, start, end))
   ipcMain.handle('monitoring:insert', (_e, data: any) => db.insertMonitoring(data))
-  ipcMain.handle('monitoring:alerts', () => db.getActiveAlerts())
+  ipcMain.handle('monitoring:alerts', () => db.getAlerts())
+  ipcMain.handle('monitoring:alert:insert', (_e, alert: any) => db.insertAlert(alert))
   ipcMain.handle('monitoring:alert:ack', (_e, id: number, operator: string) => db.acknowledgeAlert(id, operator))
 
   ipcMain.handle('maintenance:list', () => db.getMaintenanceOrders())
