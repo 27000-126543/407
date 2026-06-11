@@ -206,6 +206,14 @@ class PumpDatabase {
     }
     migrate() {
         try {
+            const cols = this.db.prepare("PRAGMA table_info(alerts)").all();
+            const colNames = cols.map(c => c.name);
+            if (!colNames.includes('autoAction')) {
+                this.db.prepare("ALTER TABLE alerts ADD COLUMN autoAction TEXT").run();
+            }
+            if (!colNames.includes('autoActionResult')) {
+                this.db.prepare("ALTER TABLE alerts ADD COLUMN autoActionResult TEXT").run();
+            }
             const pumpCount = this.db.prepare('SELECT COUNT(*) as count FROM pumps').get();
             if (pumpCount.count === 0)
                 return;
@@ -369,6 +377,25 @@ class PumpDatabase {
             }
         }
     }
+    enrichUnits(units, pump) {
+        return units.map((u) => {
+            let flow = 0;
+            let current = 0;
+            let head = pump.head;
+            if (u.status === 'running') {
+                flow = Math.round(u.ratedFlow * (0.85 + Math.random() * 0.1));
+                current = +(u.ratedCurrent * (0.85 + Math.random() * 0.1)).toFixed(1);
+                head = +(u.ratedHead * (0.95 + Math.random() * 0.08)).toFixed(1);
+            }
+            return {
+                ...u,
+                isBackup: !!u.isBackup,
+                current,
+                flow,
+                head
+            };
+        });
+    }
     getPumps() {
         const pumps = this.db.prepare('SELECT * FROM pumps ORDER BY id').all().map((p) => ({
             ...p,
@@ -376,7 +403,8 @@ class PumpDatabase {
             downstreamPumpIds: JSON.parse(p.downstreamPumpIds || '[]')
         }));
         pumps.forEach((pump) => {
-            pump.units = this.db.prepare('SELECT * FROM pump_units WHERE pumpId = ? ORDER BY id').all(pump.id);
+            const units = this.db.prepare('SELECT * FROM pump_units WHERE pumpId = ? ORDER BY id').all(pump.id);
+            pump.units = this.enrichUnits(units, pump);
         });
         return pumps;
     }
@@ -384,11 +412,12 @@ class PumpDatabase {
         const pump = this.db.prepare('SELECT * FROM pumps WHERE id = ?').get(id);
         if (!pump)
             return null;
+        const units = this.db.prepare('SELECT * FROM pump_units WHERE pumpId = ? ORDER BY id').all(id);
         return {
             ...pump,
             upstreamPumpIds: JSON.parse(pump.upstreamPumpIds || '[]'),
             downstreamPumpIds: JSON.parse(pump.downstreamPumpIds || '[]'),
-            units: this.db.prepare('SELECT * FROM pump_units WHERE pumpId = ?').all(id)
+            units: this.enrichUnits(units, pump)
         };
     }
     createPump(data) {

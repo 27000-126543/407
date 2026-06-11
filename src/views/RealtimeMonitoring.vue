@@ -133,6 +133,8 @@
               <p><strong>报警参数：</strong>{{ currentAlert?.parameter }}</p>
               <p><strong>实际值：</strong>{{ currentAlert?.actualValue }}</p>
               <p><strong>阈值：</strong>{{ currentAlert?.threshold }}</p>
+              <p v-if="currentAlert?.autoAction"><strong>自动处理动作：</strong>{{ currentAlert.autoAction }}</p>
+              <p v-if="currentAlert?.autoActionResult"><strong>处理结果：</strong>{{ currentAlert.autoActionResult }}</p>
             </div>
           </template>
         </el-alert>
@@ -484,10 +486,16 @@ function updateRealtimeData() {
     baseData.isAlert = true
     baseData.alertLevel = 'warning'
   }
-  if (Math.random() < 0.05) {
-    baseData.forebayLevel = pump.forebayWarningLevel + Math.random() * 0.5
+  if (Math.random() < 0.07) {
+    const levelDelta = pump.forebayDangerLevel - pump.forebayWarningLevel
+    if (Math.random() < 0.5) {
+      baseData.forebayLevel = pump.forebayWarningLevel + Math.random() * (levelDelta - 0.1)
+      baseData.alertLevel = 'warning'
+    } else {
+      baseData.forebayLevel = pump.forebayDangerLevel + Math.random() * 0.6
+      baseData.alertLevel = 'danger'
+    }
     baseData.isAlert = true
-    baseData.alertLevel = 'danger'
   }
 
   monitoringStore.realtimeData.set(selectedPumpId.value, baseData)
@@ -632,12 +640,17 @@ async function stopPump(unit: PumpUnit) {
   }
 }
 
-function acknowledgeAlert() {
+async function acknowledgeAlert() {
   if (currentAlert.value) {
-    monitoringStore.ackAlert(currentAlert.value.id, '当前用户')
+    try {
+      await monitoringStore.ackAlert(currentAlert.value.id, '当前用户')
+      ElMessage.success('报警已确认')
+    } catch (e) {
+      console.error('确认报警失败', e)
+      ElMessage.error('确认报警失败')
+    }
     alertDialogVisible.value = false
     currentAlert.value = null
-    ElMessage.success('报警已确认')
   }
 }
 

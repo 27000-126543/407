@@ -259,13 +259,17 @@
               <h4 style="margin: 0 0 8px 0; font-size: 14px;">泵站运行数据</h4>
               <el-descriptions :column="2" border size="small">
                 <el-descriptions-item label="流量">
-                  {{ getPumpFlow(selectedNode)?.toFixed(1) || 0 }} m³/h
+                  <span :class="getPumpFlow(selectedNode) > 0 ? 'flow-active' : ''">
+                    {{ getPumpFlow(selectedNode).toFixed(1) }} m³/h
+                  </span>
                 </el-descriptions-item>
                 <el-descriptions-item label="电流">
-                  {{ getPumpCurrent(selectedNode)?.toFixed(1) || 0 }} A
+                  <span :class="getPumpCurrent(selectedNode) > 0 ? 'flow-active' : ''">
+                    {{ getPumpCurrent(selectedNode).toFixed(1) }} A
+                  </span>
                 </el-descriptions-item>
                 <el-descriptions-item label="扬程">
-                  {{ getPumpHead(selectedNode)?.toFixed(1) || 0 }} m
+                  {{ getPumpHead(selectedNode).toFixed(1) }} m
                 </el-descriptions-item>
                 <el-descriptions-item label="状态">
                   <el-tag :type="getPumpStatusTag(selectedNode)" size="small">
@@ -287,24 +291,31 @@
         <div style="background: white; border-radius: 8px; padding: 16px; flex: 1; overflow-y: auto;">
           <h3 class="chart-title" style="margin-bottom: 12px;">泵站状态列表</h3>
           <el-table :data="pumpNodes" size="small" stripe>
-            <el-table-column prop="name" label="泵站名称" width="120" />
-            <el-table-column label="水位(m)" width="90">
+            <el-table-column prop="name" label="泵站名称" width="110" />
+            <el-table-column label="状态" width="64">
               <template #default="{ row }">
-                <span :style="{ color: getLevelColor((row.currentLevel || 0), row.maxLevel, row.warningLevel) }">
-                  {{ (row.currentLevel || 0).toFixed(2) }}
-                </span>
-              </template>
-            </el-table-column>
-            <el-table-column label="状态" width="70">
-              <template #default="{ row }">
-                <span :class="`status-tag-${getPumpActualStatus(row)}`" style="padding: 2px 8px;">
+                <el-tag :type="getPumpStatusTag(row)" size="small" style="width:100%;">
                   {{ getPumpStatusText(row) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="流量" width="78">
+              <template #default="{ row }">
+                <span :class="getPumpFlow(row) > 0 ? 'flow-active' : ''">
+                  {{ getPumpFlow(row).toFixed(0) }}
                 </span>
               </template>
             </el-table-column>
-            <el-table-column label="流量" width="80">
+            <el-table-column label="电流" width="78">
               <template #default="{ row }">
-                {{ getPumpFlow(row)?.toFixed(0) || 0 }}
+                <span :class="getPumpCurrent(row) > 0 ? 'flow-active' : ''">
+                  {{ getPumpCurrent(row).toFixed(0) }}
+                </span>
+              </template>
+            </el-table-column>
+            <el-table-column label="扬程" width="78">
+              <template #default="{ row }">
+                {{ getPumpHead(row).toFixed(1) }}
               </template>
             </el-table-column>
             <el-table-column label="操作" width="50">
@@ -500,10 +511,28 @@ function findPumpByNode(node: PipelineNode): Pump | undefined {
 
 function getPumpActualStatus(node: PipelineNode): string {
   const pump = findPumpByNode(node)
-  if (pump) return pump.status
-  const data = realtimeData.value.get(node.id)
-  if (data && data.flow > 0) return 'running'
-  return 'standby'
+  if (!pump) {
+    const data = realtimeData.value.get(node.id)
+    if (data && data.flow > 0) return 'running'
+    return 'standby'
+  }
+
+  if (pump.status === 'fault' || pump.status === 'maintenance') {
+    return pump.status
+  }
+
+  const data = realtimeData.value.get(pump.id)
+  if (data && typeof data.flow === 'number' && data.flow > 0) return 'running'
+  if (data && typeof data.current === 'number' && data.current > 5) return 'running'
+
+  if (pump.units && pump.units.length > 0) {
+    const runningUnits = pump.units.filter((u: any) => u.status === 'running')
+    if (runningUnits.length > 0) return 'running'
+    const hasFlow = pump.units.some((u: any) => (u.flow || 0) > 0)
+    if (hasFlow) return 'running'
+  }
+
+  return pump.status || 'standby'
 }
 
 function getPumpStatusText(node: PipelineNode): string {
@@ -729,5 +758,10 @@ onUnmounted(() => {
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+.flow-active {
+  color: #67C23A;
+  font-weight: 600;
 }
 </style>

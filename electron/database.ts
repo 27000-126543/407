@@ -202,11 +202,39 @@ export default class PumpDatabase {
       CREATE INDEX IF NOT EXISTS idx_alerts_unacknowledged ON alerts(acknowledged);
     `)
 
+    try {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS alert_disposal_records (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          alertId INTEGER NOT NULL,
+          action TEXT NOT NULL,
+          operator TEXT NOT NULL,
+          assignee TEXT,
+          progress TEXT DEFAULT 'pending',
+          remark TEXT,
+          createTime TEXT DEFAULT (datetime('now')),
+          FOREIGN KEY (alertId) REFERENCES alerts(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_disposal_alert ON alert_disposal_records(alertId);
+      `)
+    } catch (e) {
+      console.warn('创建处置记录表跳过:', e)
+    }
+
     this.migrate()
   }
 
   migrate() {
     try {
+      const cols = this.db.prepare("PRAGMA table_info(alerts)").all() as any[]
+      const colNames = cols.map(c => c.name)
+      if (!colNames.includes('autoAction')) {
+        this.db.prepare("ALTER TABLE alerts ADD COLUMN autoAction TEXT").run()
+      }
+      if (!colNames.includes('autoActionResult')) {
+        this.db.prepare("ALTER TABLE alerts ADD COLUMN autoActionResult TEXT").run()
+      }
+
       const pumpCount = this.db.prepare('SELECT COUNT(*) as count FROM pumps').get() as { count: number }
       if (pumpCount.count === 0) return
 
@@ -415,6 +443,26 @@ export default class PumpDatabase {
     }
   }
 
+  private enrichUnits(units: any[], pump: any): any[] {
+    return units.map((u: any) => {
+      let flow = 0
+      let current = 0
+      let head = pump.head
+      if (u.status === 'running') {
+        flow = Math.round(u.ratedFlow * (0.85 + Math.random() * 0.1))
+        current = +(u.ratedCurrent * (0.85 + Math.random() * 0.1)).toFixed(1)
+        head = +(u.ratedHead * (0.95 + Math.random() * 0.08)).toFixed(1)
+      }
+      return {
+        ...u,
+        isBackup: !!u.isBackup,
+        current,
+        flow,
+        head
+      }
+    })
+  }
+
   getPumps(): any[] {
     const pumps = this.db.prepare('SELECT * FROM pumps ORDER BY id').all().map((p: any) => ({
       ...p,
@@ -422,7 +470,8 @@ export default class PumpDatabase {
       downstreamPumpIds: JSON.parse(p.downstreamPumpIds || '[]')
     }))
     pumps.forEach((pump: any) => {
-      pump.units = this.db.prepare('SELECT * FROM pump_units WHERE pumpId = ? ORDER BY id').all(pump.id)
+      const units = this.db.prepare('SELECT * FROM pump_units WHERE pumpId = ? ORDER BY id').all(pump.id)
+      pump.units = this.enrichUnits(units, pump)
     })
     return pumps
   }
@@ -430,11 +479,12 @@ export default class PumpDatabase {
   getPump(id: number): any {
     const pump = this.db.prepare('SELECT * FROM pumps WHERE id = ?').get(id) as any
     if (!pump) return null
+    const units = this.db.prepare('SELECT * FROM pump_units WHERE pumpId = ? ORDER BY id').all(id)
     return {
       ...pump,
       upstreamPumpIds: JSON.parse(pump.upstreamPumpIds || '[]'),
       downstreamPumpIds: JSON.parse(pump.downstreamPumpIds || '[]'),
-      units: this.db.prepare('SELECT * FROM pump_units WHERE pumpId = ?').all(id)
+      units: this.enrichUnits(units, pump)
     }
   }
 
@@ -635,13 +685,19 @@ export default class PumpDatabase {
   getAlerts(): any[] {
     return this.db.prepare(`
       SELECT * FROM alerts ORDER BY timestamp DESC
-    `).all()
+    `).all().map((a: any) => ({
+      ...a,
+      acknowledged: !!a.acknowledged
+    }))
   }
 
   getActiveAlerts(): any[] {
     return this.db.prepare(`
       SELECT * FROM alerts WHERE acknowledged = 0 ORDER BY timestamp DESC
-    `).all()
+    `).all().map((a: any) => ({
+      ...a,
+      acknowledged: !!a.acknowledged
+    }))
   }
 
   acknowledgeAlert(id: number, operator: string): void {
@@ -933,6 +989,30 @@ export default class PumpDatabase {
       ...n,
       connectedNodes: JSON.parse(n.connectedNodes || '[]')
     }))
+  }
+
+  getDisposalRecords(alertId: number): any[] {
+    return this.db.prepare(`
+      SELECT * FROM alert_disposal_records WHERE alertId = ? ORDER BY createTime ASC
+    `).all(alertId)
+  }
+
+  addDisposalRecord(data: any): number {
+    const result = this.db.prepare(`
+      INSERT INTO alert_disposal_records (alertId, action, operator, assignee, progress, remark)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      data.alertId, data.action, data.operator, data.assignee || null,
+      data.progress || 'pending', data.remark || null
+    )
+    return result.lastInsertRowid as number
+  }
+
+  updateDisposalRecord(id: number, data: any): void {
+    this.db.prepare(`
+      UPDATE alert_disposal_records SET progress = ?, remark = ?, assignee = ?
+      WHERE id = ?
+    `).run(data.progress, data.remark, data.assignee, id)
   }
 
   close() {

@@ -24,7 +24,10 @@ contextBridge.exposeInMainWorld('api', {
     insert: (data: any) => ipcRenderer.invoke('monitoring:insert', data),
     alerts: () => ipcRenderer.invoke('monitoring:alerts'),
     insertAlert: (alert: any) => ipcRenderer.invoke('monitoring:alert:insert', alert),
-    ackAlert: (id: number, operator: string) => ipcRenderer.invoke('monitoring:alert:ack', id, operator)
+    ackAlert: (id: number, operator: string) => ipcRenderer.invoke('monitoring:alert:ack', id, operator),
+    disposalRecords: (alertId: number) => ipcRenderer.invoke('monitoring:disposal:list', alertId),
+    addDisposalRecord: (data: any) => ipcRenderer.invoke('monitoring:disposal:add', data),
+    updateDisposalRecord: (id: number, data: any) => ipcRenderer.invoke('monitoring:disposal:update', id, data)
   },
   maintenance: {
     list: () => ipcRenderer.invoke('maintenance:list'),

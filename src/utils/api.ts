@@ -361,7 +361,7 @@ export const api = hasElectronAPI ? (window as any).api : {
     alerts: () => Promise.resolve(mockAlerts),
     insertAlert: (alert: any) => {
       const newId = Math.max(0, ...mockAlerts.map(a => a.id)) + 1
-      mockAlerts.unshift({ ...alert, id: newId })
+      mockAlerts.unshift({ ...alert, id: newId, acknowledged: !!alert.acknowledged })
       return Promise.resolve(newId)
     },
     ackAlert: (id: number, operator: string) => {
@@ -371,6 +371,20 @@ export const api = hasElectronAPI ? (window as any).api : {
         alert.acknowledgedBy = operator
         alert.acknowledgedTime = dayjs().format('YYYY-MM-DD HH:mm:ss')
       }
+      return Promise.resolve()
+    },
+    disposalRecords: (alertId: number) => {
+      const records = mockDisposalRecords.filter(r => r.alertId === alertId)
+      return Promise.resolve(records)
+    },
+    addDisposalRecord: (data: any) => {
+      const newId = Math.max(0, ...mockDisposalRecords.map(r => r.id)) + 1
+      mockDisposalRecords.unshift({ ...data, id: newId, createTime: dayjs().format('YYYY-MM-DD HH:mm:ss') })
+      return Promise.resolve(newId)
+    },
+    updateDisposalRecord: (id: number, data: any) => {
+      const idx = mockDisposalRecords.findIndex(r => r.id === id)
+      if (idx >= 0) mockDisposalRecords[idx] = { ...mockDisposalRecords[idx], ...data }
       return Promise.resolve()
     }
   },

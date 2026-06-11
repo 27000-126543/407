@@ -74,6 +74,9 @@ function registerIpcHandlers() {
   ipcMain.handle('monitoring:alerts', () => db.getAlerts())
   ipcMain.handle('monitoring:alert:insert', (_e, alert: any) => db.insertAlert(alert))
   ipcMain.handle('monitoring:alert:ack', (_e, id: number, operator: string) => db.acknowledgeAlert(id, operator))
+  ipcMain.handle('monitoring:disposal:list', (_e, alertId: number) => db.getDisposalRecords(alertId))
+  ipcMain.handle('monitoring:disposal:add', (_e, data: any) => db.addDisposalRecord(data))
+  ipcMain.handle('monitoring:disposal:update', (_e, id: number, data: any) => db.updateDisposalRecord(id, data))
 
   ipcMain.handle('maintenance:list', () => db.getMaintenanceOrders())
   ipcMain.handle('maintenance:create', (_e, data: any) => db.createMaintenanceOrder(data))
